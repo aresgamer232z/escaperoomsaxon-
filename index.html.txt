@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Escape Room – Saxon Possessive</title>
+<style>
+  :root{
+    --bg:#0e0f12; --panel:#161a22; --tile:#3a475a; --floor:#64748b; --wall:#223047;
+    --accent:#60a5fa; --ok:#22c55e; --bad:#ef4444; --text:#e5e7eb;
+  }
+  *{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#0b0f16,#121826);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  header{padding:12px 16px;border-bottom:1px solid #1f2837;display:flex;align-items:center;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:18px}
+  .hud{display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:#141a24;border:1px solid #223047;border-radius:999px;padding:6px 10px;font-size:13px}
+  .badge b{color:var(--accent)}
+  main{max-width:980px;margin:16px auto;padding:0 12px;display:grid;grid-template-columns:1fr 330px;gap:14px}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid #1e293b;border-radius:16px;box-shadow:0 8px 24px #0006}
+  .panel{padding:14px}
+
+  /* Tablero visible SIEMPRE */
+  #board{width:100%;max-width:740px;height:min(72vh,740px); /* fuerza alto */
+         background:#0b0d12;border-radius:16px;margin:10px auto;display:grid;gap:2px;
+         padding:8px;border:1px solid #1f2531}
+  .cell{border-radius:6px;position:relative}
+  .floor{background:var(--floor)}
+  .wall{background:var(--wall)}
+  .goal{background:#1f2937}
+  .goal::after{content:"🚪";position:absolute;right:6px;bottom:4px}
+  .hint{outline:2px dashed #facc15aa;background:#334155}
+  .player{background:#111827;border:3px solid #38bdf8;box-shadow:0 0 0 4px #38bdf833 inset;border-radius:8px}
+
+  /* Botonera táctil */
+  .pad{display:grid;grid-template-columns:repeat(3,64px);gap:10px;justify-content:center;padding:10px}
+  .pad button{width:64px;height:64px;border-radius:14px;border:1px solid #334155;background:#1f2937;color:var(--text);font-weight:700}
+  .ghost{visibility:hidden}
+
+  /* Modales */
+  dialog{border:none;border-radius:16px;background:#0f1320;color:var(--text);width:min(560px,92%);padding:0}
+  dialog::backdrop{background:#000a}
+  .q-header{padding:14px 16px;border-bottom:1px solid #1f2533;display:flex;gap:10px;align-items:center}
+  .q-body{padding:16px;display:grid;gap:10px}
+  .q-hint{font-size:13px;opacity:.9}
+  .opt{background:#1a2030;padding:10px;border:1px solid #283044;border-radius:10px;cursor:pointer}
+  .opt:hover{filter:brightness(1.05)}
+  .ok{border-color:var(--ok);background:#15301e}
+  .bad{border-color:var(--bad);background:#2a1719}
+
+  .center{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:22px;gap:14px;text-align:center}
+  input[type=text]{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #2a3140;background:#161b25;color:var(--text)}
+  button{background:#202938;color:var(--text);border:1px solid #2b3342;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer}
+  button.accent{border-color:#22d3ee}
+  .small{font-size:12px;opacity:.8}
+
+  /* Ranking */
+  .rank{margin-top:8px;border-top:1px solid #233044;padding-top:8px}
+  .rank h4{margin:.2rem 0 .4rem}
+  .rank ol{margin:0;padding-left:22px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Escape Room · Saxon Possessive</h1>
+  <div class="hud">
+    <span class="badge">Jugador: <b id="hudName">—</b></span>
+    <span class="badge">Nivel: <b id="hudLevel">1/5</b></span>
+    <span class="badge">Tiempo: <b id="hudTime">05:00</b></span>
+    <span class="badge">Puntos: <b id="hudScore">0</b></span>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <div class="panel">
+      <div id="board" aria-label="tablero"></div>
+      <div class="pad">
+        <span class="ghost"></span>
+        <button id="btnUp">↑</button>
+        <span class="ghost"></span>
+        <button id="btnLeft">←</button>
+        <button id="btnDown">↓</button>
+        <button id="btnRight">→</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="card">
+    <div class="panel">
+      <div id="screen"></div>
+      <div class="rank" id="rankBox">
+        <h4>Top-3 local</h4>
+        <ol id="rankList"></ol>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<dialog id="quiz">
+  <div class="q-header">
+    <strong>Desbloquea la puerta</strong>
+  </div>
+  <div class="q-body">
+    <div id="qText"></div>
+    <div id="qHint" class="q-hint"></div>
+    <div id="qOpts"></div>
+  </div>
+</dialog>
+
+<script>
+/* ========= Datos del juego ========= */
+const LEVELS = [
+  { time:300, penalty:5, map:[
+      "##########",
+      "#P......G#",
+      "#..##....#",
+      "#..##....#",
+      "#........#",
+      "#..##....#",
+      "#..##....#",
+      "#....H...#",
+      "##########",
+      "##########",
+    ],
+    q:{ text:"Elige el genitivo correcto: <i>the backpack of Maria</i>",
+        opts:["Maria's backpack","Marias' backpack","Maria backpack"], ok:0,
+        hint:"Nombre singular + 's → posesión."
+    }
+  },
+  { time:240, penalty:4, map:[
+      "##########","#P...##..#","#....##..#","#..H.....#","#..##....#",
+      "#..##G...#","#........#","#........#","##########","##########",
+    ],
+    q:{ text:"Plural en -s: <i>the toys of the kids</i>",
+        opts:["the kids' toys","the kid's toys","the kids's toys"], ok:0,
+        hint:"Plural que ya termina en s → solo apóstrofo final." }
+  },
+  { time:180, penalty:3, map:[
+      "##########","#P.......#","#.####...#","#....#...#","#.H..#...#",
+      "#.##.#...#","#....#G..#","#....#...#","##########","##########",
+    ],
+    q:{ text:"Plural irregular: <i>the feet of the men</i>",
+        opts:["the men's feet","the mens' feet","the men feet"], ok:0,
+        hint:"Irregulares (men/children/people) → +'s." }
+  },
+  { time:120, penalty:2, map:[
+      "##########","#P....#..#","#.##..#..#","#.##..#..#","#.H...#..#",
+      "#.####...#","#.....G..#","#........#","##########","##########",
+    ],
+    q:{ text:"Propios en -s: <i>the car of James</i>",
+        opts:["James's car","James' car","Jame's car"], ok:0,
+        hint:"En uso moderno se acepta 's en nombres propios." }
+  },
+  { time:60,  penalty:1, map:[
+      "##########","#P..##...#","#...##...#","#.H......#","#.#####..#",
+      "#.....#..#","#..##.#G.#","#.....#..#","##########","##########",
+    ],
+    q:{ text:"Con whose: <i>Whose book is this? It is __ (my sister)</i>",
+        opts:["my sister's","my sisters'","the book of my sister"], ok:0,
+        hint:"Responde con el poseedor +'s." }
+  },
+];
+
+const TILE_WALL='#', TILE_EMPTY='.', TILE_PLAYER='P', TILE_GOAL='G', TILE_HINT='H';
+
+/* ========= Estado ========= */
+let player={x:1,y:1};
+let levelIndex=0, score=0;
+let timer=null, timeLeft=LEVELS[0].time;
+let startedAt=null, finishedAt=null;
+let playerName=localStorage.getItem('sp_name')||'';
+
+const board=document.getElementById('board');
+const screen=document.getElementById('screen');
+const hud={ name:byId('hudName'), level:byId('hudLevel'), time:byId('hudTime'), score:byId('hudScore') };
+const quiz=byId('quiz'), qText=byId('qText'), qHint=byId('qHint'), qOpts=byId('qOpts');
+const rankList=byId('rankList');
+
+/* ========= Util ========= */
+function byId(id){return document.getElementById(id)}
+const fmt=s=>${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')};
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+
+/* ========= Ranking local ========= */
+function getRank(){ try{ return JSON.parse(localStorage.getItem('sp_rank')||'[]'); }catch{ return [] } }
+function setRank(arr){ localStorage.setItem('sp_rank', JSON.stringify(arr.slice(0,10))); }
+function addToRank(name,score,secs){
+  const r=getRank();
+  r.push({name,score,secs,when:Date.now()});
+  r.sort((a,b)=> b.score-a.score || a.secs-b.secs || a.when-b.when);
+  setRank(r); renderRank();
+}
+function renderRank(){
+  const r=getRank().slice(0,3);
+  rankList.innerHTML = r.length? r.map((e,i)=><li>${e.name} — <b>${e.score}</b> pts · ${fmt(e.secs)}</li>).join('') : '<li>Aún no hay récords</li>';
+}
+
+/* ========= Pantallas ========= */
+function renderStart(){
+  renderRank();
+  board.innerHTML='';
+  const box=document.createElement('div');
+  box.className='center';
+  box.innerHTML=`
+    <h2>Bienvenido/a</h2>
+    <p>Muévete con <b>WASD/Flechas</b> o los botones. Llega a la <b>puerta</b> (🚪) y responde. Toca los cuadros con línea punteada para ver <b>pistas</b>.</p>
+    <input id="nameInput" type="text" placeholder="Escribe tu nombre" value="${playerName}">
+    <button class="accent" id="startBtn">Comenzar</button>
+    <p class="small">Niveles: 5:00 → 1:00 | Penalización: −5s → −1s</p>`;
+  screen.innerHTML=''; screen.appendChild(box);
+  byId('startBtn').onclick=()=>{
+    playerName=byId('nameInput').value.trim()||'Jugador';
+    localStorage.setItem('sp_name',playerName);
+    startGame();
+  };
+  hud.name.textContent=playerName||'—';
+  hud.level.textContent=1/${LEVELS.length};
+  hud.time.textContent=fmt(LEVELS[0].time);
+  hud.score.textContent='0';
+}
+
+let currentMap=[], rows=0, cols=0;
+function drawBoard(){
+  board.style.gridTemplateColumns=repeat(${cols}, 1fr);
+  board.innerHTML='';
+  for(let y=0;y<rows;y++){
+    for(let x=0;x<cols;x++){
+      const t=currentMap[y][x];
+      const c=document.createElement('div');
+      c.className='cell ' + (t===TILE_WALL?'wall': t===TILE_GOAL?'goal': t===TILE_HINT?'hint':'floor');
+      if(x===player.x && y===player.y) c.classList.add('player');
+      c.dataset.x=x; c.dataset.y=y;
+      c.onclick=()=>touchTile(x,y);
+      board.appendChild(c);
+    }
+  }
+}
+function loadLevel(i){
+  const L=LEVELS[i];
+  currentMap=L.map.map(r=>r.split(''));
+  rows=currentMap.length; cols=currentMap[0].length;
+
+  // localizar jugador inicial
+  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++)
+    if(currentMap[y][x]===TILE_PLAYER){ player.x=x; player.y=y; }
+
+  drawBoard();
+
+  hud.level.textContent=${i+1}/${LEVELS.length};
+  timeLeft=L.time; hud.time.textContent=fmt(timeLeft); hud.score.textContent=score;
+
+  screen.innerHTML=`<h3>Nivel ${i+1}</h3>
+    <ul>
+      <li>Tiempo: <b>${fmt(L.time)}</b> · Penalización: <b>−${L.penalty}s</b></li>
+      <li>Llega a la puerta (🚪) y responde correctamente.</li>
+      <li>Las celdas con línea punteada muestran <b>pistas</b>.</li>
+    </ul>`;
+}
+
+function startTimer(){
+  clearInterval(timer);
+  startedAt = startedAt ?? Date.now();
+  timer=setInterval(()=>{
+    timeLeft--; hud.time.textContent=fmt(timeLeft);
+    if(timeLeft<=0){ clearInterval(timer); gameOver(); }
+  },1000);
+}
+function startGame(){ finishedAt=null; startedAt=null; score=0; levelIndex=0; loadLevel(levelIndex); startTimer(); }
+function gameOver(){
+  const box=document.createElement('div');
+  box.className='center';
+  box.innerHTML=`<h2>Se acabó el tiempo</h2>
+    <p>${playerName}, tu puntaje fue <b>${score}</b>. ¡Inténtalo otra vez!</p>
+    <button class="accent" id="retryBtn">Reintentar</button>`;
+  screen.innerHTML=''; screen.appendChild(box);
+  byId('retryBtn').onclick=()=>renderStart();
+}
+
+/* ========= Movimiento ========= */
+function canMove(nx,ny){ nx=clamp(nx,0,cols-1); ny=clamp(ny,0,rows-1); return currentMap[ny][nx]!==TILE_WALL; }
+function move(dx,dy){
+  const nx=clamp(player.x+dx,0,cols-1), ny=clamp(player.y+dy,0,rows-1);
+  if(!canMove(nx,ny)) return;
+  const old=player.y*cols+player.x, neu=ny*cols+nx;
+  board.children[old].classList.remove('player');
+  board.children[neu].classList.add('player');
+  player.x=nx; player.y=ny;
+  const t=currentMap[ny][nx];
+  if(t===TILE_GOAL) askQuestion();
+}
+function touchTile(x,y){
+  const t=currentMap[y][x];
+  if(t===TILE_HINT) showHint();
+  if(Math.abs(x-player.x)+Math.abs(y-player.y)===1) move(x-player.x,y-player.y);
+}
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(['arrowup','w'].includes(k)) move(0,-1);
+  else if(['arrowdown','s'].includes(k)) move(0,1);
+  else if(['arrowleft','a'].includes(k)) move(-1,0);
+  else if(['arrowright','d'].includes(k)) move(1,0);
+});
+byId('btnUp').onclick = ()=>move(0,-1);
+byId('btnDown').onclick = ()=>move(0,1);
+byId('btnLeft').onclick= ()=>move(-1,0);
+byId('btnRight').onclick= ()=>move(1,0);
+
+/* ========= Preguntas ========= */
+function askQuestion(){
+  const L=LEVELS[levelIndex];
+  qText.innerHTML=<p>${L.q.text}</p>;
+  qHint.textContent="";
+  qOpts.innerHTML="";
+  L.q.opts.forEach((op,i)=>{
+    const b=document.createElement('button');
+    b.className='opt'; b.textContent=op;
+    b.onclick=()=>{
+      if(i===L.q.ok){ b.classList.add('ok'); score+=100; hud.score.textContent=score; setTimeout(nextLevel,450); quiz.close(); }
+      else{ b.classList.add('bad'); timeLeft=Math.max(0,timeLeft-L.penalty); hud.time.textContent=fmt(timeLeft); }
+    };
+    qOpts.appendChild(b);
+  });
+  quiz.showModal();
+}
+function showHint(){
+  const L=LEVELS[levelIndex];
+  qText.innerHTML=<p>${L.q.text}</p>;
+  qHint.textContent="Pista: "+L.q.hint;
+  qOpts.innerHTML="";
+  const b=document.createElement('button'); b.textContent="Cerrar"; b.onclick=()=>quiz.close();
+  qOpts.appendChild(b);
+  quiz.showModal();
+}
+function nextLevel(){
+  levelIndex++;
+  if(levelIndex>=LEVELS.length){
+    finishedAt=Date.now();
+    clearInterval(timer);
+    const totalSecs=Math.max(0,Math.round((finishedAt-startedAt)/1000));
+    addToRank(playerName,score,totalSecs);
+    const box=document.createElement('div');
+    box.className='center';
+    box.innerHTML=`<h2>¡Escape completado!</h2>
+      <p><b>${playerName}</b>, puntaje <b>${score}</b> · tiempo total <b>${fmt(totalSecs)}</b>.</p>
+      <button id="againBtn">Jugar de nuevo</button>`;
+    screen.innerHTML=''; screen.appendChild(box);
+    byId('againBtn').onclick=()=>{ levelIndex=0; score=0; renderStart(); };
+    return;
+  }
+  loadLevel(levelIndex);
+}
+renderStart();
+</script>
+</body>
+</html>
