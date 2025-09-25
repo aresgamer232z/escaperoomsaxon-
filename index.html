@@ -23,7 +23,7 @@
   /* Tablero visible SIEMPRE */
   #board{width:100%;max-width:740px;height:min(72vh,740px); /* fuerza alto */
          background:#0b0d12;border-radius:16px;margin:10px auto;display:grid;gap:2px;
-         padding:8px;border:1px solid #1f2531}
+         padding:8px;border:1px solid #1f2531;grid-auto-rows: 1fr;}
   .cell{border-radius:6px;position:relative}
   .floor{background:var(--floor)}
   .wall{background:var(--wall)}
@@ -354,3 +354,4 @@ renderStart();
 </script>
 </body>
 </html>
+
